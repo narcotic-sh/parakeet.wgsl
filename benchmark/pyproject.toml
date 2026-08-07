@@ -1,0 +1,36 @@
+[project]
+name = "parakeet-wgsl-benchmark"
+version = "0.0.0"
+description = "Reproducible LibriSpeech accuracy benchmark for parakeet.wgsl"
+requires-python = "==3.13.*"
+dependencies = [
+  "huggingface-hub>=0.34.4,<1",
+  "jiwer==3.1.0",
+  "kaldialign==0.12.0",
+  "playwright>=1.54,<2",
+  "pyarrow>=21,<22",
+  "regex>=2025.7.34",
+  "soundfile>=0.13.1,<1",
+]
+
+[dependency-groups]
+dev = [
+  "numpy>=2.3,<3",
+  "pytest>=8.4,<9",
+  "ruff>=0.12,<1",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = ["."]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 88
+extend-exclude = ["normalizer"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]

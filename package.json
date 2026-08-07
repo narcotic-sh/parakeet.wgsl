@@ -1,0 +1,85 @@
+{
+  "name": "parakeet.wgsl",
+  "version": "1.0.1",
+  "description": "NVIDIA's Parakeet TDT 0.6B V2 model ported to the browser, powered by WebGPU and WebAssembly",
+  "type": "module",
+  "sideEffects": false,
+  "license": "MIT",
+  "author": {
+    "name": "Hamza Qayyum",
+    "email": "hamza@narcotic.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/narcotic-sh/parakeet.wgsl.git"
+  },
+  "bugs": {
+    "url": "https://github.com/narcotic-sh/parakeet.wgsl/issues"
+  },
+  "homepage": "https://github.com/narcotic-sh/parakeet.wgsl#readme",
+  "keywords": [
+    "speech-to-text",
+    "speech-recognition",
+    "automatic-speech-recognition",
+    "audio-transcription",
+    "transcription",
+    "asr",
+    "nvidia-parakeet",
+    "parakeet",
+    "parakeet-tdt",
+    "parakeet-tdt-0.6b-v2",
+    "webgpu",
+    "wgsl",
+    "webassembly",
+    "wasm",
+    "browser",
+    "on-device",
+    "client-side"
+  ],
+  "files": [
+    "dist/index.js",
+    "dist/index.d.ts",
+    "dist/api.d.ts",
+    "dist/runtime/transcriber.d.ts",
+    "dist/runtime/protocol.d.ts",
+    "dist/runtime/paced-transcript.d.ts",
+    "dist/runtime/paced-transcript-dom.d.ts",
+    "dist/assets",
+    "README.md",
+    "DOCS.md",
+    "LICENSE",
+    "THIRD_PARTY_LICENSES"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "types": "./dist/index.d.ts",
+  "packageManager": "pnpm@10.20.0",
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "pnpm check && vite build && tsc --project tsconfig.build.json",
+    "build:wasm": "./src/cpp/build-wasm.sh",
+    "check": "tsc --noEmit",
+    "demo": "pnpm --dir demo dev",
+    "pack:check": "npm pack --dry-run --ignore-scripts",
+    "prepack": "pnpm build",
+    "test": "vitest run",
+    "test:audio-core": "node ./scripts/verify-incremental-audio-core.mjs",
+    "test:browser:audio": "pnpm build && node ./scripts/browser-audio-decoding.mjs",
+    "verify:package": "node ./scripts/verify-package.mjs",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "@webgpu/types": "^0.1.64",
+    "typescript": "^5.8.0",
+    "vite": "^8.1.5",
+    "vitest": "^4.1.10"
+  }
+}

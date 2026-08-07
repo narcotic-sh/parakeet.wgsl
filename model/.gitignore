@@ -1,0 +1,15 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+
+# Downloaded source archives, Hugging Face cache data, and native builds.
+/cache/
+
+# Canonical generated packages are hosted separately from the repository.
+/files/
+/files-fp32/
+
+# Transactional package staging and backups.
+/.files.*
+/.files-fp32.*
