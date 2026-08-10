@@ -251,14 +251,55 @@
         hidden
       >
         <div class="panel-heading transcript-heading">
-          <h2 id="transcript-title">Transcript</h2>
-          <p
-            id="output-state"
+          <div class="transcript-heading-text">
+            <h2 id="transcript-title">Transcript</h2>
+            <p
+              id="output-state"
+              role="status"
+              aria-live="polite"
+              aria-atomic="true"
+              hidden
+            ></p>
+          </div>
+          <button
+            id="copy-transcript"
+            class="transcript-copy-button"
+            type="button"
+            aria-label="Copy transcript"
+            aria-controls="output"
+            title="Copy transcript"
+            data-copy-state="idle"
+            hidden
+            disabled
+          >
+            <svg
+              class="transcript-copy-icon transcript-copy-icon-copy"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <rect x="8" y="3" width="12" height="15" rx="2.25"></rect>
+              <path
+                d="M16.5 18v1.25a2.25 2.25 0 0 1-2.25 2.25h-9.5A2.25 2.25 0 0 1 2.5 19.25v-10A2.25 2.25 0 0 1 4.75 7H8"
+              ></path>
+            </svg>
+            <svg
+              class="transcript-copy-icon transcript-copy-icon-check"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              aria-hidden="true"
+            >
+              <path d="m4.5 12.5 4.5 4.5L19.5 6.5"></path>
+            </svg>
+          </button>
+          <span
+            id="copy-transcript-status"
+            class="visually-hidden"
             role="status"
             aria-live="polite"
-            aria-atomic="true"
-            hidden
-          ></p>
+          ></span>
         </div>
         <div id="playback-row" class="playback-row" hidden>
           <audio

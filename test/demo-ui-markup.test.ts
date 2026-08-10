@@ -83,6 +83,44 @@ describe("demo markup", () => {
     );
   });
 
+  it("adds a final-transcript copy control to the transcript header", async () => {
+    const [html, css, main] = await Promise.all([
+      readFile(new URL("index.html", demoRoot), "utf8"),
+      readFile(new URL("src/style.css", demoRoot), "utf8"),
+      readFile(new URL("src/main.ts", demoRoot), "utf8"),
+    ]);
+    const heading = html.indexOf('class="panel-heading transcript-heading"');
+    const copyButton = html.indexOf('id="copy-transcript"');
+    const transcript = html.indexOf('id="output"');
+
+    expect(heading).toBeGreaterThan(-1);
+    expect(copyButton).toBeGreaterThan(heading);
+    expect(transcript).toBeGreaterThan(copyButton);
+    expect(html).toMatch(
+      /id="copy-transcript"[\s\S]*?type="button"[\s\S]*?aria-label="Copy transcript"[\s\S]*?hidden[\s\S]*?disabled/,
+    );
+    expect(html).toContain(
+      'class="transcript-copy-icon transcript-copy-icon-copy"',
+    );
+    expect(html).toContain('stroke="currentColor"');
+    expect(css).toMatch(
+      /\.transcript-heading\s*{[^}]*display:\s*flex;[^}]*justify-content:\s*space-between;/,
+    );
+    expect(css).toMatch(
+      /\.transcript-copy-button\[hidden\]\s*{[^}]*display:\s*none;/,
+    );
+    expect(main).toContain(
+      "Hover for timestamps. Click a word to seek.",
+    );
+    expect(main).toContain(
+      "navigator.clipboard.writeText(transcriptRenderer.text)",
+    );
+    expect(main).toContain("setTranscriptCopyAvailable(false)");
+    expect(main).toContain(
+      "setTranscriptCopyAvailable(result.text.length > 0)",
+    );
+  });
+
   it("links the footer to the canonical repository license file", async () => {
     const [html, viteConfig] = await Promise.all([
       readFile(new URL("index.html", demoRoot), "utf8"),

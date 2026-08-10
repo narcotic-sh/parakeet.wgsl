@@ -76,6 +76,12 @@ const progressPercent = requiredElement<HTMLElement>("progress-percent");
 const progressElement = requiredElement<HTMLProgressElement>("progress");
 const transcriptPanel = requiredElement<HTMLElement>("transcript-panel");
 const outputState = requiredElement<HTMLParagraphElement>("output-state");
+const copyTranscriptButton = requiredElement<HTMLButtonElement>(
+  "copy-transcript",
+);
+const copyTranscriptStatus = requiredElement<HTMLSpanElement>(
+  "copy-transcript-status",
+);
 const playbackRow = requiredElement<HTMLElement>("playback-row");
 const audioPlayer = requiredElement<HTMLAudioElement>("audio-player");
 const playbackUnavailable = requiredElement<HTMLParagraphElement>(
@@ -129,6 +135,7 @@ let playbackSyncFrame: number | undefined;
 let pendingPlaybackSeekSeconds: number | undefined;
 let activePlaybackWord: PacedTranscriptWord | undefined;
 let followedPlaybackWord: PacedTranscriptWord | undefined;
+let transcriptCopyFeedbackTimeout: number | undefined;
 
 configureTheme();
 configureBrowserPerformanceWarning();
@@ -204,6 +211,10 @@ function wireEvents(): void {
 
   deleteModelsButton.addEventListener("click", () => {
     void deleteDownloadedModels();
+  });
+
+  copyTranscriptButton.addEventListener("click", () => {
+    void copyFinalTranscript();
   });
 
   output.addEventListener("pointermove", (event) => {
@@ -628,6 +639,7 @@ async function transcribeSelectedFile(): Promise<void> {
   output.dataset.hasTimestamps = "false";
   output.setAttribute("aria-busy", "true");
   hideTranscriptSubtitle();
+  setTranscriptCopyAvailable(false);
   transcriptRenderer.reset();
   hideWordTooltip();
   setStatus("", "ready");
@@ -659,6 +671,7 @@ async function transcribeSelectedFile(): Promise<void> {
     output.dataset.state = "final";
     output.setAttribute("aria-busy", "false");
     showFinalTranscriptSubtitle();
+    setTranscriptCopyAvailable(result.text.length > 0);
     prepareAudioPlayback(file);
     transcriptionDetails = result.metrics;
     summaryDuration.textContent = formatDuration(
@@ -799,8 +812,57 @@ function hideTranscriptSubtitle(): void {
 
 function showFinalTranscriptSubtitle(): void {
   outputState.hidden = false;
-  outputState.textContent =
-    "Hover for timestamps or click a word to seek.";
+  outputState.textContent = "Hover for timestamps. Click a word to seek.";
+}
+
+function setTranscriptCopyAvailable(available: boolean): void {
+  resetTranscriptCopyFeedback();
+  copyTranscriptButton.disabled = !available;
+  copyTranscriptButton.hidden = !available;
+}
+
+async function copyFinalTranscript(): Promise<void> {
+  if (!transcriptRenderer.isFinal || transcriptRenderer.text.length === 0) {
+    return;
+  }
+
+  try {
+    await navigator.clipboard.writeText(transcriptRenderer.text);
+    setTranscriptCopyFeedback("copied", "Copied", "Transcript copied.");
+  } catch {
+    setTranscriptCopyFeedback(
+      "error",
+      "Copy failed",
+      "Could not copy transcript.",
+    );
+  }
+}
+
+function setTranscriptCopyFeedback(
+  state: "copied" | "error",
+  label: string,
+  statusText: string,
+): void {
+  resetTranscriptCopyFeedback();
+  copyTranscriptButton.dataset.copyState = state;
+  copyTranscriptButton.setAttribute("aria-label", label);
+  copyTranscriptButton.title = label;
+  copyTranscriptStatus.textContent = statusText;
+  transcriptCopyFeedbackTimeout = window.setTimeout(
+    resetTranscriptCopyFeedback,
+    1_600,
+  );
+}
+
+function resetTranscriptCopyFeedback(): void {
+  if (transcriptCopyFeedbackTimeout !== undefined) {
+    clearTimeout(transcriptCopyFeedbackTimeout);
+    transcriptCopyFeedbackTimeout = undefined;
+  }
+  copyTranscriptButton.dataset.copyState = "idle";
+  copyTranscriptButton.setAttribute("aria-label", "Copy transcript");
+  copyTranscriptButton.title = "Copy transcript";
+  copyTranscriptStatus.textContent = "";
 }
 
 function handleTranscriptScroll(): void {

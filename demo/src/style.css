@@ -99,6 +99,18 @@
   box-sizing: border-box;
 }
 
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  border: 0;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 html,
 body {
   min-height: 100%;
@@ -661,7 +673,68 @@ progress::-moz-progress-bar {
 }
 
 .transcript-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
   border-bottom: 1px solid var(--demo-divider);
+}
+
+.transcript-heading-text {
+  min-width: 0;
+}
+
+.transcript-copy-button {
+  display: grid;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 auto;
+  padding: 0;
+  place-items: center;
+  color: var(--demo-muted-text);
+  background: var(--demo-surface-bg);
+}
+
+.transcript-copy-button[hidden] {
+  display: none;
+}
+
+.transcript-copy-button:hover:not(:disabled) {
+  color: var(--demo-accent-strong);
+}
+
+.transcript-copy-button[data-copy-state="copied"] {
+  border-color: var(--demo-accent);
+  color: var(--demo-accent-strong);
+  background: var(--demo-accent-soft-bg);
+}
+
+.transcript-copy-button[data-copy-state="error"] {
+  border-color: var(--demo-danger-text);
+  color: var(--demo-danger-text);
+}
+
+.transcript-copy-icon {
+  width: 20px;
+  height: 20px;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.transcript-copy-icon-check {
+  display: none;
+}
+
+.transcript-copy-button[data-copy-state="copied"]
+  .transcript-copy-icon-copy {
+  display: none;
+}
+
+.transcript-copy-button[data-copy-state="copied"]
+  .transcript-copy-icon-check {
+  display: block;
 }
 
 .playback-row {
