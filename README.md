@@ -4,7 +4,7 @@ High-performance inference of NVIDIA's [Parakeet TDT 0.6B V2](https://huggingfac
 
 A fully custom, dependancy-free implementation with raw WebGPU compute shaders and SIMD WebAssembly audio frontend.
 
-1 hour of audio transcribed in 20 seconds (Apple M5, Google Chrome 151.0.7922.72).
+1 hour of audio transcribed in 8.4 seconds (Apple M5 Max, Safari 26.6).
 
 Scores 1.69% and 3.19% WER on LibriSpeech `test-clean` and `test-other`,
 respectively, matching
