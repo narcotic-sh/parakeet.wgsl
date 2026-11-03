@@ -9,6 +9,21 @@ export const PARAKEET_FP16_MANIFEST_SHA256 =
   "11a359db3d050fd82b002c745b24a5280f3ff13a76834b548df671c95c786c65";
 export const PARAKEET_FP32_MANIFEST_SHA256 =
   "28dee836aefc2bfb01236fda6d10e1df7447724d2489040168549999ea267b1b";
+/**
+ * Cross-Origin Storage bundle identities: the manifest followed by every
+ * runtime file, as `cross_origin_storage_bundle_identity()` in
+ * `model/convert.py` computes them. Each follows from its manifest identity.
+ */
+export const PARAKEET_FP16_COS_BUNDLE = Object.freeze({
+  byteLength: 405_252_493,
+  sha256:
+    "edecfed86c5affa8de2a997122c1f360769434391a68cb2af1262cb535b43d3e",
+});
+export const PARAKEET_FP32_COS_BUNDLE = Object.freeze({
+  byteLength: 440_706_373,
+  sha256:
+    "46d0b9b800763b4b5b5662b4de7456bdbb6ba2e805dedb7d23820ff5020b85dd",
+});
 export const PARAKEET_FFN_SOURCE_WIDTH = 4096;
 export const PARAKEET_SOURCE_REVISION =
   "ae9ad07059c7c739ffaf932226a8fe64ae2620b0";

@@ -151,6 +151,18 @@ CANONICAL_MANIFEST_SHA256 = {
     FP16_PACKAGE_VARIANT.precision: FP16_MANIFEST_SHA256,
     FP32_PACKAGE_VARIANT.precision: FP32_MANIFEST_SHA256,
 }
+# Byte length and SHA-256 of each package's Cross-Origin Storage bundle; see
+# `cross_origin_storage_bundle_identity()`. The runtime pins the same values.
+CANONICAL_CROSS_ORIGIN_STORAGE_BUNDLES = {
+    FP16_PACKAGE_VARIANT.precision: (
+        405_252_493,
+        "edecfed86c5affa8de2a997122c1f360769434391a68cb2af1262cb535b43d3e",
+    ),
+    FP32_PACKAGE_VARIANT.precision: (
+        440_706_373,
+        "46d0b9b800763b4b5b5662b4de7456bdbb6ba2e805dedb7d23820ff5020b85dd",
+    ),
+}
 
 
 class ShardWriter:
@@ -1005,6 +1017,13 @@ def validate_staged_package_identity(
             f"Converted {variant.precision} manifest SHA-256 mismatch: "
             f"expected {expected}, got {digest}. The staged package does not "
             "reproduce the pinned source and conversion identity."
+        )
+    bundle = cross_origin_storage_bundle_identity(output_dir)
+    if bundle != CANONICAL_CROSS_ORIGIN_STORAGE_BUNDLES[variant.precision]:
+        raise RuntimeError(
+            f"Converted {variant.precision} Cross-Origin Storage bundle "
+            f"changed: got {bundle[0]} bytes with SHA-256 {bundle[1]}. Pin "
+            "the new identity here and in src/model/manifest.ts."
         )
 
 
@@ -2359,6 +2378,35 @@ def sha256_file(path: Path) -> str:
         while chunk := stream.read(8 * 1024 * 1024):
             digest.update(chunk)
     return digest.hexdigest()
+
+
+def cross_origin_storage_bundle_identity(
+    output_dir: Path,
+) -> tuple[int, str]:
+    """Return the byte length and SHA-256 of the Cross-Origin Storage bundle.
+
+    Browsers assemble this bundle from verified package files and share it
+    through Cross-Origin Storage, so that one lookup retrieves the whole
+    runtime package. It is the manifest followed by every file that holds
+    tensors and `tokenizer.json`, in manifest order. This must match
+    `crossOriginStorageBundleLayout()` in `src/model-cache.ts`.
+    """
+    manifest_path = output_dir / "manifest.json"
+    manifest = json.loads(manifest_path.read_text())
+    shards = {record["shard"] for record in manifest["tensors"].values()}
+    paths = [manifest_path] + [
+        output_dir / record["name"]
+        for record in manifest["files"]
+        if record["name"] in shards or record["name"] == "tokenizer.json"
+    ]
+    digest = hashlib.sha256()
+    byte_length = 0
+    for path in paths:
+        with path.open("rb") as stream:
+            while chunk := stream.read(8 * 1024 * 1024):
+                digest.update(chunk)
+                byte_length += len(chunk)
+    return byte_length, digest.hexdigest()
 
 
 if __name__ == "__main__":

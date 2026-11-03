@@ -126,11 +126,13 @@ const loaded = await transcriber.loadCachedModel();
 ```
 
 Loads and compiles the capability-selected model only when every required
-object is already valid in Cache Storage.
+object is already valid in Cache Storage or
+[Cross-Origin Storage](#cross-origin-storage).
 
 When this method starts initialization, it prohibits model network access. It
-returns `true` after the model is GPU-resident and `false` when Cache Storage is
-unavailable or any selected-package object is missing, incomplete, or corrupt.
+returns `true` after the model is GPU-resident and `false` when any
+selected-package object is missing, incomplete, or corrupt in both stores, or
+neither store is available.
 It may still load package-owned worker and filter-bank WebAssembly assets.
 
 Concurrent calls share one initialization task. A concurrent `transcribe()`
@@ -682,6 +684,53 @@ streaming it to the GPU loader and cache. A cache or quota failure is nonfatal
 and falls back to a verified network stream. A damaged cached object is evicted
 and replaced.
 
+### Cross-Origin Storage
+
+In browsers that expose the experimental
+[Cross-Origin Storage API](https://github.com/WICG/cross-origin-storage)
+(`navigator.crossOriginStorage`), model loads also use it as a progressive
+enhancement. No option is needed, and browsers without the API behave exactly
+as described above.
+
+Cross-Origin Storage holds each package as one bundle: the manifest followed
+by every runtime file, about 405 MB for FP16 and 441 MB for FP32. One lookup
+retrieves a whole package. Each package version pins its bundle's byte length
+and SHA-256 next to its manifest identity.
+
+While Cross-Origin Storage is available, the model is stored there alone.
+Cache Storage only stages a download until the package is complete, and model
+requests use `cache: "no-store"` so that the HTTP cache keeps no copy.
+
+- Each load looks up the bundle once, before reading any file. A file is then
+  read from an existing Cache Storage copy, from the bundle, or from the
+  network, in that order.
+- A file read from the bundle is verified by byte length and SHA-256 while it
+  streams, exactly like a Cache Storage hit.
+- Network downloads are staged in Cache Storage, so an interrupted load
+  resumes with only the missing files.
+- Once a load has verified every file, the package moves into the bundle,
+  which is stored with `origins: '*'`, since the model files are public.
+  Cross-Origin Storage checks the bundle's complete digest, and only then is
+  the Cache Storage copy deleted. The move continues in the background after
+  the model is ready. If it fails, the Cache Storage copy remains and a later
+  load retries the move.
+- A Cache Storage copy made before the browser supported Cross-Origin Storage
+  moves into the bundle the same way, and a copy that duplicates an existing
+  bundle is deleted.
+- `loadCachedModel()` treats the bundle as cached, because reading it needs no
+  network access.
+- A damaged bundle file is skipped for the rest of the load, the retry fetches
+  it from the network, and the bundle is rewritten from verified sources.
+- If the browser refuses Cross-Origin Storage, for example through Permissions
+  Policy, the load falls back to Cache Storage as described above.
+- The browser manages the bundle, so `getModelCacheInfo()` does not count it
+  and `deleteCachedModels()` does not remove it. Users remove it through the
+  browser's storage settings.
+
+The browser decides which sites may read the bundle: same-site origins of a
+site that stored it always can, while other sites depend on the browser's
+privacy gating, and a miss always falls back to the network.
+
 Transient request and response-body failures, plus HTTP 408, 425, 429, and 5xx
 responses, retry up to four total network attempts with abortable exponential
 backoff, jitter, and bounded `Retry-After` handling. Deterministic 4xx, schema,
@@ -756,8 +805,8 @@ rejects its promise, generally with the thrown value.
 
 parakeet.wgsl is an ESM-only, browser-only package with no production
 dependencies. It requires a secure context, WebGPU, module workers, and
-WebAssembly SIMD. Cache Storage is optional; OPFS is required only for the
-FFmpeg decoding path.
+WebAssembly SIMD. Cache Storage and Cross-Origin Storage are optional; OPFS is
+required only for the FFmpeg decoding path.
 
 The published entry references four emitted assets through relocatable
 `new URL(..., import.meta.url)` expressions:

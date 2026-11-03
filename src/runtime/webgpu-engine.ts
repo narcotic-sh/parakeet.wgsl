@@ -8,12 +8,15 @@ import {
 } from "../audio/fbank-wasm";
 import { ParakeetGpuPackage } from "../model/package";
 import {
+  PARAKEET_FP16_COS_BUNDLE,
   PARAKEET_FP16_MANIFEST_SHA256,
+  PARAKEET_FP32_COS_BUNDLE,
   PARAKEET_FP32_MANIFEST_SHA256,
   type ParakeetManifest,
   type ParakeetModelPrecision,
 } from "../model/manifest";
 import {
+  crossOriginStorageBundleLayout,
   ModelCacheSession,
   ModelNotCachedError,
   type ModelCacheAsset,
@@ -1182,6 +1185,10 @@ async function loadSelectedModelPackage(
     selectedManifestAsset(manifestUrl, precision),
     {
       cacheOnly: context.modelSource === "cache-only",
+      crossOriginStorageBundle:
+        precision === "fp16"
+          ? PARAKEET_FP16_COS_BUNDLE
+          : PARAKEET_FP32_COS_BUNDLE,
       fetch: (input, init) => {
         if (activeFetch === undefined) {
           throw new Error("The Parakeet model fetch attempt has not started");
@@ -1203,6 +1210,9 @@ async function loadSelectedModelPackage(
             : { signal: context.signal }),
           onManifest: async (manifest) => {
             cache.registerAssets(selectedPackageAssets(manifestUrl, manifest));
+            cache.setCrossOriginStorageBundleLayout(
+              crossOriginStorageBundleLayout(manifestUrl, manifest),
+            );
             if (context.modelSource === "cache-only") {
               await cache.requireCachedAssets(
                 selectedRuntimePackageAssets(manifestUrl, manifest),
