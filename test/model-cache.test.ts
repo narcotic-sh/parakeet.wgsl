@@ -5,6 +5,7 @@ import {
   ModelNotCachedError,
   clearStoredModels,
   crossOriginStorageBundleLayout,
+  inspectCrossOriginStorageBundles,
   inspectStoredModels,
   type CrossOriginStorageBundle,
   type CrossOriginStorageManager,
@@ -1021,6 +1022,48 @@ describe("crossOriginStorageBundleLayout()", () => {
       "https://models.example/v1/fp16/preprocessor.bin",
       "https://models.example/v1/fp16/tokenizer.json",
     ]);
+  });
+});
+
+describe("inspectCrossOriginStorageBundles()", () => {
+  const bundles = {
+    fp16: { byteLength: 405, sha256: "d".repeat(64) },
+    fp32: { byteLength: 441, sha256: "e".repeat(64) },
+  };
+
+  it("reports unsupported without the API", async () => {
+    expect(await inspectCrossOriginStorageBundles(bundles, undefined)).toEqual({
+      supported: false,
+      bundles: [],
+      sizeBytes: 0,
+    });
+  });
+
+  it("reports stored bundles with one lookup each and no reads", async () => {
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(bundles.fp32.sha256, new Uint8Array(1));
+
+    expect(await inspectCrossOriginStorageBundles(bundles, shared)).toEqual({
+      supported: true,
+      bundles: ["fp32"],
+      sizeBytes: 441,
+    });
+    expect(shared.requests).toEqual([
+      { value: bundles.fp16.sha256, create: false, origins: undefined },
+      { value: bundles.fp32.sha256, create: false, origins: undefined },
+    ]);
+  });
+
+  it("reports a refused lookup as absent", async () => {
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(bundles.fp16.sha256, new Uint8Array(1));
+    shared.requestError = new DOMException("blocked", "NotAllowedError");
+
+    expect(await inspectCrossOriginStorageBundles(bundles, shared)).toEqual({
+      supported: true,
+      bundles: [],
+      sizeBytes: 0,
+    });
   });
 });
 

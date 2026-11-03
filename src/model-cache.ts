@@ -886,6 +886,46 @@ export async function inspectStoredModels(
   return { supported: true, assetCount, sizeBytes };
 }
 
+export interface StoredCrossOriginStorageInfo<Name extends string> {
+  readonly supported: boolean;
+  readonly bundles: readonly Name[];
+  readonly sizeBytes: number;
+}
+
+/**
+ * Report which of the given bundles this context can read from Cross-Origin
+ * Storage. Each bundle costs one lookup and no read. A bundle the browser
+ * withholds is reported as absent.
+ */
+export async function inspectCrossOriginStorageBundles<Name extends string>(
+  bundles: Readonly<Record<Name, CrossOriginStorageBundle>>,
+  storage: CrossOriginStorageManager | undefined = defaultCrossOriginStorage(),
+): Promise<StoredCrossOriginStorageInfo<Name>> {
+  if (storage === undefined) {
+    return { supported: false, bundles: [], sizeBytes: 0 };
+  }
+  const entries = Object.entries(bundles) as [
+    Name,
+    CrossOriginStorageBundle,
+  ][];
+  const found = await Promise.all(
+    entries.map(async ([, bundle]) => {
+      try {
+        await storage.getFileHandle(crossOriginStorageHash(bundle));
+        return true;
+      } catch {
+        return false;
+      }
+    }),
+  );
+  const stored = entries.filter((_, index) => found[index]);
+  return {
+    supported: true,
+    bundles: stored.map(([name]) => name),
+    sizeBytes: stored.reduce((total, [, { byteLength }]) => total + byteLength, 0),
+  };
+}
+
 export async function clearStoredModels(
   storage: CacheStorage | undefined = cacheStorage(),
 ): Promise<void> {

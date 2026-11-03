@@ -662,6 +662,11 @@ interface ModelCacheInfo {
   supported: boolean;
   assetCount: number;
   sizeBytes: number;
+  crossOriginStorage: {
+    supported: boolean;
+    precisions: ("fp16" | "fp32")[];
+    sizeBytes: number;
+  };
 }
 ```
 
@@ -669,15 +674,21 @@ Reports the aggregate objects stored in parakeet.wgsl-managed Cache Storage
 namespaces for the current origin. When Cache Storage is unavailable, it
 returns `supported: false` with zero counts.
 
+`crossOriginStorage` reports the model packages that this context can read
+from [Cross-Origin Storage](#cross-origin-storage), with their total size.
+Checking costs one lookup per precision and reads no model bytes. When the API
+is unavailable, it reports `supported: false` with no precisions.
+
 ### `deleteCachedModels()`
 
 ```ts
 await deleteCachedModels();
 ```
 
-Deletes every parakeet.wgsl-managed model cache for the current origin. A model
-already uploaded to a live controller's GPU buffers remains available until
-that controller is disposed.
+Deletes every parakeet.wgsl-managed model cache for the current origin. It
+does not remove a package from Cross-Origin Storage, which the browser
+manages. A model already uploaded to a live controller's GPU buffers remains
+available until that controller is disposed.
 
 Normal model loads verify every object by URL, byte length, and SHA-256 while
 streaming it to the GPU loader and cache. A cache or quota failure is nonfatal
@@ -723,9 +734,9 @@ requests use `cache: "no-store"` so that the HTTP cache keeps no copy.
   it from the network, and the bundle is rewritten from verified sources.
 - If the browser refuses Cross-Origin Storage, for example through Permissions
   Policy, the load falls back to Cache Storage as described above.
-- The browser manages the bundle, so `getModelCacheInfo()` does not count it
-  and `deleteCachedModels()` does not remove it. Users remove it through the
-  browser's storage settings.
+- `getModelCacheInfo()` reports the bundle under `crossOriginStorage`. The
+  browser manages it, so `deleteCachedModels()` does not remove it, and users
+  remove it through the browser's storage settings.
 
 The browser decides which sites may read the bundle: same-site origins of a
 site that stored it always can, while other sites depend on the browser's
