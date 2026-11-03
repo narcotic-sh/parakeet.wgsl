@@ -8,7 +8,7 @@ import {
   inspectCrossOriginStorageBundles,
   inspectStoredModels,
   type CrossOriginStorageBundle,
-  type CrossOriginStorageManager,
+  type ModelCrossOriginStorage,
   type ModelCacheAsset,
 } from "../src/model-cache";
 
@@ -1346,7 +1346,7 @@ class MemoryCacheStorage {
 }
 
 type CrossOriginStorageRequest = Parameters<
-  CrossOriginStorageManager["getFileHandle"]
+  ModelCrossOriginStorage["getFileHandle"]
 >;
 
 interface BundleFixture {
@@ -1444,12 +1444,12 @@ async function finishLoad(session: ModelCacheSession): Promise<void> {
  * positioned and out of order, nothing is stored until `close()` verifies the
  * complete digest, and `abort()` discards the write.
  */
-class MemoryCrossOriginStorage implements CrossOriginStorageManager {
+class MemoryCrossOriginStorage implements ModelCrossOriginStorage {
   public readonly files = new Map<string, Uint8Array<ArrayBuffer>>();
   public readonly requests: Array<{
     readonly value: string;
     readonly create: boolean;
-    readonly origins: "*" | readonly string[] | undefined;
+    readonly origins: string | readonly string[] | undefined;
   }> = [];
   public requestError: Error | undefined;
   public writeError: Error | undefined;
@@ -1458,19 +1458,26 @@ class MemoryCrossOriginStorage implements CrossOriginStorageManager {
   public async getFileHandle(
     hash: CrossOriginStorageRequest[0],
     options: CrossOriginStorageRequest[1] = {},
-  ): ReturnType<CrossOriginStorageManager["getFileHandle"]> {
+  ): ReturnType<ModelCrossOriginStorage["getFileHandle"]> {
     const create = options.create === true;
     this.requests.push({ value: hash.value, create, origins: options.origins });
     if (this.requestError !== undefined) throw this.requestError;
     if (!create && !this.files.has(hash.value)) {
       throw new DOMException("not in cross-origin storage", "NotFoundError");
     }
-    return {
-      getFile: async () => new Blob([this.files.get(hash.value)!]),
+    // The session uses only these members of the handle and its writable.
+    const handle = {
+      getFile: async () => new File([this.files.get(hash.value)!], "bundle"),
       createWritable: async () => {
         let buffer = new Uint8Array(0);
-        return {
-          write: async ({ position, data }) => {
+        const writable = {
+          write: async ({
+            position,
+            data,
+          }: {
+            readonly position: number;
+            readonly data: Blob | BufferSource;
+          }) => {
             if (this.writeError !== undefined) throw this.writeError;
             const bytes =
               data instanceof Blob
@@ -1493,8 +1500,10 @@ class MemoryCrossOriginStorage implements CrossOriginStorageManager {
             this.aborts += 1;
           },
         };
+        return writable as unknown as FileSystemWritableFileStream;
       },
     };
+    return handle as unknown as FileSystemFileHandle;
   }
 }
 

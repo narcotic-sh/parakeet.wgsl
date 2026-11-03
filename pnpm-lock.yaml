@@ -11,6 +11,9 @@ importers:
       '@types/node':
         specifier: ^26.1.1
         version: 26.1.2
+      '@types/wicg-cross-origin-storage':
+        specifier: ^2026.10.2
+        version: 2026.10.2
       '@webgpu/types':
         specifier: ^0.1.64
         version: 0.1.71
@@ -332,6 +335,9 @@ packages:
 
   '@types/node@26.1.2':
     resolution: {integrity: sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg==}
+
+  '@types/wicg-cross-origin-storage@2026.10.2':
+    resolution: {integrity: sha512-gaHoVyqgEB9mM1MQMpi2oWZ4b+w/MOCiDpCCQAxv7XCDadyk0HJAV6VPDM0DnPwoJMbVHdN4Dwe90oTrjU5+BQ==}
 
   '@vitest/expect@4.1.10':
     resolution: {integrity: sha512-YsCn+qAk1GWjQOWFEsEcL2gNQ0zmVmQu3T03qP6UyjhtmdtwtbuI+DASn/7iQB3HGTXkdBwGddzxPlmiql5vlA==}
@@ -819,6 +825,8 @@ snapshots:
   '@types/node@26.1.2':
     dependencies:
       undici-types: 8.3.0
+
+  '@types/wicg-cross-origin-storage@2026.10.2': {}
 
   '@vitest/expect@4.1.10':
     dependencies:

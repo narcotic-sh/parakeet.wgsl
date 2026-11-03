@@ -38,44 +38,17 @@ export interface CrossOriginStorageBundle {
 }
 
 /**
- * The subset of the experimental Cross-Origin Storage API that the model
- * cache uses. Files are addressed by their SHA-256 digest, so a model
- * downloaded on one origin can be reused on another without a new transfer.
+ * The part of the experimental Cross-Origin Storage API that the model cache
+ * uses. Files are addressed by their SHA-256 digest, so a model downloaded on
+ * one origin can be reused on another without a new transfer.
  *
  * @see https://github.com/WICG/cross-origin-storage
  * @internal
  */
-export interface CrossOriginStorageManager {
-  getFileHandle(
-    hash: CrossOriginStorageHash,
-    options?: CrossOriginStorageRequestOptions,
-  ): Promise<CrossOriginStorageFileHandle>;
-}
-
-interface CrossOriginStorageHash {
-  readonly algorithm: "SHA-256";
-  readonly value: string;
-}
-
-interface CrossOriginStorageRequestOptions {
-  readonly create?: boolean;
-  readonly origins?: "*" | readonly string[];
-}
-
-interface CrossOriginStorageFileHandle {
-  getFile(): Promise<Blob>;
-  createWritable(): Promise<CrossOriginStorageWritable>;
-}
-
-interface CrossOriginStorageWritable {
-  write(params: {
-    readonly type: "write";
-    readonly position: number;
-    readonly data: Blob | BufferSource;
-  }): Promise<unknown>;
-  close(): Promise<unknown>;
-  abort(reason?: unknown): Promise<unknown>;
-}
+export type ModelCrossOriginStorage = Pick<
+  CrossOriginStorageManager,
+  "getFileHandle"
+>;
 
 interface ModelCacheSessionOptions {
   readonly cacheStorage?: CacheStorage;
@@ -86,7 +59,7 @@ interface ModelCacheSessionOptions {
    * defaults to `navigator.crossOriginStorage` when the browser exposes it;
    * `null` disables it.
    */
-  readonly crossOriginStorage?: CrossOriginStorageManager | null;
+  readonly crossOriginStorage?: ModelCrossOriginStorage | null;
   readonly fetch?: typeof fetch;
   /**
    * Refuse every network fallback and use only the exact managed cache or the
@@ -188,7 +161,7 @@ export class ModelCacheSession {
   private bundle:
     | {
         readonly identity: CrossOriginStorageBundle;
-        readonly storage: CrossOriginStorageManager;
+        readonly storage: ModelCrossOriginStorage;
       }
     | undefined;
   private readonly bundleParts = new Map<string, BundlePart>();
@@ -197,7 +170,9 @@ export class ModelCacheSession {
   private bundleFile: Blob | undefined;
   private readonly ignoredBundleUrls = new Set<string>();
   private readonly verifiedUrls = new Set<string>();
-  private bundleWriter: Promise<CrossOriginStorageWritable | undefined> | undefined;
+  private bundleWriter:
+    | Promise<FileSystemWritableFileStream | undefined>
+    | undefined;
   private bundleWrites: Promise<void> = Promise.resolve();
   private bundleWriteFailed = false;
   private bundleFinish: Promise<void> | undefined;
@@ -511,7 +486,7 @@ export class ModelCacheSession {
     }
   }
 
-  private bundleWritable(): Promise<CrossOriginStorageWritable | undefined> {
+  private bundleWritable(): Promise<FileSystemWritableFileStream | undefined> {
     const bundle = this.bundle;
     if (bundle === undefined) return Promise.resolve(undefined);
     this.bundleWriter ??= (async () => {
@@ -899,7 +874,7 @@ export interface StoredCrossOriginStorageInfo<Name extends string> {
  */
 export async function inspectCrossOriginStorageBundles<Name extends string>(
   bundles: Readonly<Record<Name, CrossOriginStorageBundle>>,
-  storage: CrossOriginStorageManager | undefined = defaultCrossOriginStorage(),
+  storage: ModelCrossOriginStorage | undefined = defaultCrossOriginStorage(),
 ): Promise<StoredCrossOriginStorageInfo<Name>> {
   if (storage === undefined) {
     return { supported: false, bundles: [], sizeBytes: 0 };
@@ -944,13 +919,11 @@ function cacheStorage(): CacheStorage | undefined {
     : globalThis.caches;
 }
 
-function defaultCrossOriginStorage(): CrossOriginStorageManager | undefined {
-  const navigator = globalThis.navigator as
-    | { readonly crossOriginStorage?: unknown }
-    | undefined;
-  const storage = navigator?.crossOriginStorage as
-    | Partial<CrossOriginStorageManager>
-    | null
+function defaultCrossOriginStorage(): ModelCrossOriginStorage | undefined {
+  // The global types declare the API as always present; browsers without it
+  // leave `crossOriginStorage` undefined.
+  const storage = globalThis.navigator?.crossOriginStorage as
+    | CrossOriginStorageManager
     | undefined;
   return typeof storage?.getFileHandle === "function"
     ? { getFileHandle: storage.getFileHandle.bind(storage) }
@@ -959,7 +932,7 @@ function defaultCrossOriginStorage(): CrossOriginStorageManager | undefined {
 
 function crossOriginStorageHash(
   asset: Pick<ModelCacheAsset, "sha256">,
-): CrossOriginStorageHash {
+): CrossOriginStorageGetFileHandleHash {
   return { algorithm: "SHA-256", value: asset.sha256 };
 }
 
