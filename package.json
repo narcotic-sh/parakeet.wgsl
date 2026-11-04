@@ -1,6 +1,6 @@
 {
   "name": "parakeet.wgsl",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "description": "NVIDIA's Parakeet TDT 0.6B V2 model ported to the browser, powered by WebGPU and WebAssembly",
   "type": "module",
   "sideEffects": false,
