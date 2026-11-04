@@ -2,8 +2,13 @@
 
 import {
   clearStoredModels,
+  inspectCrossOriginStorageBundles,
   inspectStoredModels,
 } from "./model-cache.js";
+import {
+  PARAKEET_FP16_COS_BUNDLE,
+  PARAKEET_FP32_COS_BUNDLE,
+} from "./model/manifest.js";
 import {
   requiresAudioDecoding as inspectAudioDecoding,
 } from "./audio/wav-stream.js";
@@ -86,6 +91,15 @@ export interface ModelCacheInfo {
   readonly assetCount: number;
   /** Sum of the stored objects' pinned byte lengths. */
   readonly sizeBytes: number;
+  /** Model packages that this context can read from Cross-Origin Storage. */
+  readonly crossOriginStorage: {
+    /** Whether this browser context exposes Cross-Origin Storage. */
+    readonly supported: boolean;
+    /** Precisions whose package is stored there. */
+    readonly precisions: readonly ParakeetModelPrecision[];
+    /** Sum of those packages' pinned byte lengths. */
+    readonly sizeBytes: number;
+  };
 }
 
 /**
@@ -210,13 +224,34 @@ export async function checkSupport(): Promise<ParakeetSupport> {
   }
 }
 
+/**
+ * Report the model objects in this origin's Cache Storage and the model
+ * packages in Cross-Origin Storage. The Cross-Origin Storage check costs one
+ * lookup per precision and reads no model bytes.
+ */
 export async function getModelCacheInfo(): Promise<ModelCacheInfo> {
-  return await inspectStoredModels();
+  const [stored, shared] = await Promise.all([
+    inspectStoredModels(),
+    inspectCrossOriginStorageBundles({
+      fp16: PARAKEET_FP16_COS_BUNDLE,
+      fp32: PARAKEET_FP32_COS_BUNDLE,
+    }),
+  ]);
+  return {
+    ...stored,
+    crossOriginStorage: {
+      supported: shared.supported,
+      precisions: shared.bundles,
+      sizeBytes: shared.sizeBytes,
+    },
+  };
 }
 
 /**
- * Remove every parakeet.wgsl-managed model object from this origin. A live
- * transcriber keeps its already uploaded GPU model until dispose() is called.
+ * Remove every parakeet.wgsl-managed model object from this origin's Cache
+ * Storage. The browser manages Cross-Origin Storage, so this does not remove
+ * a package stored there. A live transcriber keeps its already uploaded GPU
+ * model until dispose() is called.
  */
 export async function deleteCachedModels(): Promise<void> {
   await clearStoredModels();

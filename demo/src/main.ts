@@ -1035,14 +1035,24 @@ async function refreshDownloadedModelInfo(): Promise<void> {
     const supported = record?.supported === true;
     const assetCount = numericValue(record?.assetCount);
     const sizeBytes = numericValue(record?.sizeBytes);
+    const sharedBytes = numericValue(
+      recordValue(record?.crossOriginStorage)?.sizeBytes,
+    );
+    // The browser manages Cross-Origin Storage, so only this origin's Cache
+    // Storage copy can be deleted here.
     downloadedModelsCanBeDeleted = supported && assetCount > 0;
 
-    if (!supported) {
-      cacheStatus.textContent =
-        "Downloaded model storage is unavailable in this context.";
-    } else {
-      cacheStatus.textContent = formatMebibytes(sizeBytes);
+    const parts: string[] = [];
+    if (supported && (assetCount > 0 || sharedBytes === 0)) {
+      parts.push(formatMebibytes(sizeBytes));
     }
+    if (sharedBytes > 0) {
+      parts.push(`${formatMebibytes(sharedBytes)} in Cross-Origin Storage`);
+    }
+    cacheStatus.textContent =
+      parts.length === 0
+        ? "Downloaded model storage is unavailable in this context."
+        : parts.join(", plus ");
   } catch (error) {
     downloadedModelsCanBeDeleted = false;
     downloadedModelDetails = { error: serializeError(error) };

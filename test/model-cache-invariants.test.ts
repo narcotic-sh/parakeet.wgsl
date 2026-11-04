@@ -26,6 +26,23 @@ describe("ModelCacheSession inventory invariants", () => {
     expect(session.maximumCorruptionRetries).toBe(33);
   });
 
+  it("permits one replacement per store when Cross-Origin Storage is present", () => {
+    const manifest = asset("https://models.example/fp16/manifest.json", 19);
+    const session = new ModelCacheSession(manifest, {
+      crossOriginStorageBundle: { byteLength: 20, sha256: DIGEST_B },
+      crossOriginStorage: {
+        getFileHandle: async () => {
+          throw new DOMException("not found", "NotFoundError");
+        },
+      },
+    });
+    session.registerAssets([
+      asset("https://models.example/fp16/shard-0.bin", 1),
+    ]);
+
+    expect(session.maximumCorruptionRetries).toBe(4);
+  });
+
   it("refuses conflicting integrity metadata for a registered URL", () => {
     const manifest = asset("https://models.example/fp32/manifest.json", 23);
     const session = new ModelCacheSession(manifest);

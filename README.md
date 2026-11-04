@@ -128,6 +128,8 @@ precision-specific lookup tables.
 Model weights are loaded incrementally into GPU buffers and verified before
 use. Cache Storage can retain verified model assets for later visits, while
 later transcriptions on the same transcriber reuse the GPU-resident model.
+Where the browser supports Cross-Origin Storage, the model is stored there
+instead, as a single copy that related sites can share without a download.
 
 The long-form transcription policy is derived from the excellent
 [FluidAudio](https://github.com/FluidInference/FluidAudio) project. It uses

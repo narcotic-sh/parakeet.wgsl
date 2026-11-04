@@ -4,7 +4,13 @@
     "useDefineForClassFields": true,
     "module": "ESNext",
     "lib": ["ES2024", "DOM", "DOM.Iterable", "WebWorker"],
-    "types": ["@webgpu/types", "vite/client", "vitest/globals", "node"],
+    "types": [
+      "@webgpu/types",
+      "wicg-cross-origin-storage",
+      "vite/client",
+      "vitest/globals",
+      "node"
+    ],
     "moduleResolution": "Bundler",
     "paths": {
       "parakeet.wgsl": ["./src/index.ts"]

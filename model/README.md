@@ -100,6 +100,18 @@ The FP32 package contains 601 FP32 tensors and 196 uint32 tensors, with no
 FP16 tensors. The FP16 and FP32 identities are independent; never compare one
 precision's manifest to the other precision's hash.
 
+Each package also has a Cross-Origin Storage bundle identity: the byte length
+and SHA-256 of the manifest followed by every file that holds tensors and
+`tokenizer.json`, in manifest order. Browsers assemble this bundle from
+verified files and share it through Cross-Origin Storage, so it is never
+uploaded. The converter verifies it with the manifest identity, and the
+runtime pins the same values in `src/model/manifest.ts`.
+
+| Precision | Bundle SHA-256 | Bundle bytes |
+| --- | --- | ---: |
+| FP16 | `edecfed86c5affa8de2a997122c1f360769434391a68cb2af1262cb535b43d3e` | 405,252,493 |
+| FP32 | `46d0b9b800763b4b5b5662b4de7456bdbb6ba2e805dedb7d23820ff5020b85dd` | 440,706,373 |
+
 ## Hosted packages and self-hosting
 
 The canonical packages are available at these immutable manifest URLs:

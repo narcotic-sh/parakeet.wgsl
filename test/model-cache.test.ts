@@ -1,10 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   ModelCacheSession,
   ModelNotCachedError,
   clearStoredModels,
+  crossOriginStorageBundleLayout,
+  inspectCrossOriginStorageBundles,
   inspectStoredModels,
+  type CrossOriginStorageBundle,
+  type ModelCrossOriginStorage,
   type ModelCacheAsset,
 } from "../src/model-cache";
 
@@ -612,6 +616,457 @@ describe("ModelCacheSession", () => {
   });
 });
 
+describe("ModelCacheSession with the Cross-Origin Storage bundle", () => {
+  it("moves a cold download into the bundle and keeps no other copy", async () => {
+    const fixture = await bundleFixture("cold");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests).toEqual([
+      { value: fixture.identity.sha256, create: false, origins: undefined },
+      { value: fixture.identity.sha256, create: true, origins: "*" },
+    ]);
+    expect(shared.files.get(fixture.identity.sha256)).toEqual(fixture.bundle);
+    expect(fixture.networkCacheModes).toEqual([
+      "no-store",
+      "no-store",
+      "no-store",
+    ]);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("assembles the bundle from files that arrive out of order", async () => {
+    const fixture = await bundleFixture("out-of-order");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+
+    for (const asset of [
+      fixture.parts[1]!,
+      fixture.manifest,
+      fixture.parts[0]!,
+    ]) {
+      await (await session.fetch(asset.url)).arrayBuffer();
+    }
+    await finishLoad(session);
+
+    expect(shared.files.get(fixture.identity.sha256)).toEqual(fixture.bundle);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("serves another origin from one bundle lookup without the network", async () => {
+    const fixture = await bundleFixture("reuse");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(fixture.identity.sha256, fixture.bundle.slice());
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(fixture.networkCalls).toBe(0);
+    expect(shared.requests).toHaveLength(1);
+    expect(session.consumeCacheCorruption()).toBe(false);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("moves a Cache Storage copy into the bundle and deletes it", async () => {
+    const fixture = await bundleFixture("legacy");
+    const storage = new MemoryCacheStorage();
+    const legacy = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: null,
+      fetch: fixture.network(),
+    });
+    await readAll(legacy, fixture);
+    await legacy.settle();
+    expect(storage.onlyModelCache().has(fixture.manifest.url)).toBe(true);
+
+    const shared = new MemoryCrossOriginStorage();
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: async () => {
+        throw new Error("a cached load must not fetch");
+      },
+    });
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests.map(({ create }) => create)).toEqual([false, true]);
+    expect(shared.files.get(fixture.identity.sha256)).toEqual(fixture.bundle);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("deletes a Cache Storage copy that duplicates an existing bundle", async () => {
+    const fixture = await bundleFixture("duplicate");
+    const storage = new MemoryCacheStorage();
+    const legacy = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: null,
+      fetch: fixture.network(),
+    });
+    await readAll(legacy, fixture);
+    await legacy.settle();
+
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(fixture.identity.sha256, fixture.bundle.slice());
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests.map(({ create }) => create)).toEqual([false]);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("keeps a Cache Storage copy when the bundle cannot be written", async () => {
+    const fixture = await bundleFixture("legacy-failure");
+    const storage = new MemoryCacheStorage();
+    const legacy = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: null,
+      fetch: fixture.network(),
+    });
+    await readAll(legacy, fixture);
+    await legacy.settle();
+
+    const shared = new MemoryCrossOriginStorage();
+    shared.writeError = new DOMException("quota exhausted", "QuotaExceededError");
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.files.size).toBe(0);
+    expect(shared.aborts).toBe(1);
+    expect(await inspectStoredModels(storage.asCacheStorage())).toMatchObject({
+      assetCount: 3,
+    });
+  });
+
+  it("satisfies cache-only loads from the bundle", async () => {
+    const fixture = await bundleFixture("cache-only");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    const cacheOnlySession = () =>
+      bundleSession(fixture, {
+        cacheStorage: storage.asCacheStorage(),
+        crossOriginStorage: shared,
+        cacheOnly: true,
+        fetch: fixture.network(),
+      });
+
+    await expect(
+      cacheOnlySession().requireCachedAssets(fixture.parts),
+    ).rejects.toMatchObject({ name: "ModelNotCachedError" });
+
+    shared.files.set(fixture.identity.sha256, fixture.bundle.slice());
+    shared.requests.length = 0;
+    const session = cacheOnlySession();
+    await expect(
+      session.requireCachedAssets(fixture.parts),
+    ).resolves.toBeUndefined();
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests).toHaveLength(1);
+    expect(fixture.networkCalls).toBe(0);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("skips a damaged bundle slice and rewrites the bundle", async () => {
+    const fixture = await bundleFixture("damaged");
+    const shared = new MemoryCrossOriginStorage();
+    const damaged = fixture.bundle.slice();
+    const offset = fixture.manifest.byteLength + 3;
+    damaged[offset] = damaged[offset]! ^ 0xff;
+    shared.files.set(fixture.identity.sha256, damaged);
+    const storage = new MemoryCacheStorage();
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+    const [first, second] = fixture.parts as [ModelCacheAsset, ModelCacheAsset];
+
+    await (await session.fetch(fixture.manifest.url)).arrayBuffer();
+    await expect(
+      (await session.fetch(first.url)).arrayBuffer(),
+    ).rejects.toThrow("Cross-Origin Storage model asset SHA-256 mismatch");
+    expect(session.consumeCacheCorruption()).toBe(true);
+    expect(
+      new Uint8Array(await (await session.fetch(first.url)).arrayBuffer()),
+    ).toEqual(fixture.bodies[1]);
+    expect(
+      new Uint8Array(await (await session.fetch(second.url)).arrayBuffer()),
+    ).toEqual(fixture.bodies[2]);
+    await finishLoad(session);
+
+    expect(fixture.networkCalls).toBe(1);
+    expect(shared.files.get(fixture.identity.sha256)).toEqual(fixture.bundle);
+  });
+
+  it("resumes an interrupted download from staged files", async () => {
+    const fixture = await bundleFixture("resume");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    const second = fixture.parts[1]!;
+    const interrupted = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: async (input, init) => {
+        if (requestUrl(input) === second.url) throw new TypeError("offline");
+        return fixture.network()(input, init);
+      },
+    });
+    await (await interrupted.fetch(fixture.manifest.url)).arrayBuffer();
+    await (await interrupted.fetch(fixture.parts[0]!.url)).arrayBuffer();
+    await expect(interrupted.fetch(second.url)).rejects.toThrow("offline");
+    await finishLoad(interrupted);
+    expect(fixture.networkCalls).toBe(2);
+    expect(shared.files.size).toBe(0);
+
+    const resumed = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+    await expect(readAll(resumed, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(resumed);
+
+    expect(fixture.networkCalls).toBe(3);
+    expect(shared.files.get(fixture.identity.sha256)).toEqual(fixture.bundle);
+    expect(await storage.asCacheStorage().keys()).toEqual([]);
+  });
+
+  it("keeps staged files and writes no bundle after a load that fails", async () => {
+    const fixture = await bundleFixture("failed-load");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    const second = fixture.parts[1]!;
+    const bad = fixture.bodies[2]!.slice();
+    bad[0] = bad[0]! ^ 0x01;
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: async (input, init) =>
+        requestUrl(input) === second.url
+          ? new Response(bad)
+          : fixture.network()(input, init),
+    });
+
+    await (await session.fetch(fixture.manifest.url)).arrayBuffer();
+    await (await session.fetch(fixture.parts[0]!.url)).arrayBuffer();
+    await expect(
+      (await session.fetch(second.url)).arrayBuffer(),
+    ).rejects.toThrow("Model asset SHA-256 mismatch");
+    await finishLoad(session);
+
+    expect(shared.requests.filter(({ create }) => create)).toEqual([]);
+    expect(shared.files.size).toBe(0);
+    expect(await inspectStoredModels(storage.asCacheStorage())).toMatchObject({
+      assetCount: 2,
+    });
+  });
+
+  it("disables the bundle when its layout misses the pinned length", async () => {
+    const fixture = await bundleFixture("mismatch");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(fixture.identity.sha256, fixture.bundle.slice());
+    const session = new ModelCacheSession(fixture.manifest, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      crossOriginStorageBundle: {
+        ...fixture.identity,
+        byteLength: fixture.identity.byteLength + 1,
+      },
+      fetch: fixture.network(),
+    });
+    session.setCrossOriginStorageBundleLayout(fixture.parts);
+
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests).toEqual([]);
+    expect(fixture.networkCalls).toBe(3);
+    expect(session.maximumCorruptionRetries).toBe(3);
+    expect(await inspectStoredModels(storage.asCacheStorage())).toMatchObject({
+      assetCount: 3,
+    });
+  });
+
+  it("falls back to Cache Storage when Cross-Origin Storage refuses", async () => {
+    const fixture = await bundleFixture("refused");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    shared.requestError = new DOMException("blocked", "NotAllowedError");
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.requests).toHaveLength(1);
+    expect(await inspectStoredModels(storage.asCacheStorage())).toMatchObject({
+      assetCount: 3,
+    });
+  });
+
+  it("keeps the staged copy when the bundle write fails", async () => {
+    const fixture = await bundleFixture("write-failure");
+    const storage = new MemoryCacheStorage();
+    const shared = new MemoryCrossOriginStorage();
+    shared.writeError = new DOMException("quota exhausted", "QuotaExceededError");
+    const session = bundleSession(fixture, {
+      cacheStorage: storage.asCacheStorage(),
+      crossOriginStorage: shared,
+      fetch: fixture.network(),
+    });
+
+    await expect(readAll(session, fixture)).resolves.toEqual(fixture.bodies);
+    await finishLoad(session);
+
+    expect(shared.files.size).toBe(0);
+    expect(shared.aborts).toBe(1);
+    expect(await inspectStoredModels(storage.asCacheStorage())).toMatchObject({
+      assetCount: 3,
+    });
+  });
+
+  it("detects navigator.crossOriginStorage and honors opt-outs", async () => {
+    const fixture = await bundleFixture("default");
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(fixture.identity.sha256, fixture.bundle.slice());
+    vi.stubGlobal("navigator", { crossOriginStorage: shared });
+    try {
+      const detected = bundleSession(fixture, { fetch: fixture.network() });
+      await expect(readAll(detected, fixture)).resolves.toEqual(fixture.bodies);
+      expect(fixture.networkCalls).toBe(0);
+
+      const disabled = bundleSession(fixture, {
+        crossOriginStorage: null,
+        fetch: fixture.network(),
+      });
+      await readAll(disabled, fixture);
+      expect(fixture.networkCalls).toBe(3);
+
+      const unpinned = new ModelCacheSession(fixture.manifest, {
+        fetch: fixture.network(),
+      });
+      unpinned.setCrossOriginStorageBundleLayout(fixture.parts);
+      await readAll(unpinned, fixture);
+      expect(fixture.networkCalls).toBe(6);
+      expect(shared.requests).toHaveLength(1);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("crossOriginStorageBundleLayout()", () => {
+  it("lists tensor shards and tokenizer.json in manifest order", () => {
+    const file = (name: string) => ({
+      name,
+      byteLength: name.length,
+      sha256: "c".repeat(64),
+    });
+    expect(
+      crossOriginStorageBundleLayout(
+        "https://models.example/v1/fp16/manifest.json",
+        {
+          files: [
+            file("decoder.bin"),
+            file("encoder-layer-00.bin"),
+            file("model_config.yaml"),
+            file("preprocessor.bin"),
+            file("tokenizer.json"),
+            file("tokenizer.model"),
+          ],
+          tensors: {
+            "preprocessor.window": { shard: "preprocessor.bin" },
+            "decoder.weight": { shard: "decoder.bin" },
+            "encoder.layers.0.weight": { shard: "encoder-layer-00.bin" },
+          },
+        },
+      ).map(({ url }) => url),
+    ).toEqual([
+      "https://models.example/v1/fp16/decoder.bin",
+      "https://models.example/v1/fp16/encoder-layer-00.bin",
+      "https://models.example/v1/fp16/preprocessor.bin",
+      "https://models.example/v1/fp16/tokenizer.json",
+    ]);
+  });
+});
+
+describe("inspectCrossOriginStorageBundles()", () => {
+  const bundles = {
+    fp16: { byteLength: 405, sha256: "d".repeat(64) },
+    fp32: { byteLength: 441, sha256: "e".repeat(64) },
+  };
+
+  it("reports unsupported without the API", async () => {
+    expect(await inspectCrossOriginStorageBundles(bundles, undefined)).toEqual({
+      supported: false,
+      bundles: [],
+      sizeBytes: 0,
+    });
+  });
+
+  it("reports stored bundles with one lookup each and no reads", async () => {
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(bundles.fp32.sha256, new Uint8Array(1));
+
+    expect(await inspectCrossOriginStorageBundles(bundles, shared)).toEqual({
+      supported: true,
+      bundles: ["fp32"],
+      sizeBytes: 441,
+    });
+    expect(shared.requests).toEqual([
+      { value: bundles.fp16.sha256, create: false, origins: undefined },
+      { value: bundles.fp32.sha256, create: false, origins: undefined },
+    ]);
+  });
+
+  it("reports a refused lookup as absent", async () => {
+    const shared = new MemoryCrossOriginStorage();
+    shared.files.set(bundles.fp16.sha256, new Uint8Array(1));
+    shared.requestError = new DOMException("blocked", "NotAllowedError");
+
+    expect(await inspectCrossOriginStorageBundles(bundles, shared)).toEqual({
+      supported: true,
+      bundles: [],
+      sizeBytes: 0,
+    });
+  });
+});
+
 describe("stored model cache management", () => {
   it("reports unsupported when Cache Storage is unavailable", async () => {
     expect(await inspectStoredModels()).toEqual({
@@ -890,20 +1345,186 @@ class MemoryCacheStorage {
   }
 }
 
+type CrossOriginStorageRequest = Parameters<
+  ModelCrossOriginStorage["getFileHandle"]
+>;
+
+interface BundleFixture {
+  readonly manifest: ModelCacheAsset;
+  readonly parts: readonly ModelCacheAsset[];
+  /** The manifest body followed by each part body, in bundle order. */
+  readonly bodies: readonly Uint8Array<ArrayBuffer>[];
+  readonly bundle: Uint8Array<ArrayBuffer>;
+  readonly identity: CrossOriginStorageBundle;
+  /** Network requests made through every `network()` fetch so far. */
+  readonly networkCalls: number;
+  /** The `cache` mode of every network request so far. */
+  readonly networkCacheModes: readonly (RequestCache | undefined)[];
+  network(): typeof fetch;
+}
+
+async function bundleFixture(name: string): Promise<BundleFixture> {
+  const base = `https://models.example/v1/${name}/`;
+  const bodies = [
+    byteSequence(13, 3),
+    byteSequence(29, 7),
+    byteSequence(21, 11),
+  ];
+  const [manifest, ...parts] = await Promise.all(
+    ["manifest.json", "a.bin", "b.bin"].map((file, index) =>
+      modelAsset(`${base}${file}`, bodies[index]!),
+    ),
+  );
+  const bundle = new Uint8Array(
+    bodies.reduce((total, body) => total + body.byteLength, 0),
+  );
+  let offset = 0;
+  for (const body of bodies) {
+    bundle.set(body, offset);
+    offset += body.byteLength;
+  }
+  const byUrl = new Map(
+    [manifest!, ...parts].map((asset, index) => [asset.url, bodies[index]!]),
+  );
+  const networkCacheModes: (RequestCache | undefined)[] = [];
+  return {
+    manifest: manifest!,
+    parts,
+    bodies,
+    bundle,
+    identity: { byteLength: bundle.byteLength, sha256: await sha256Hex(bundle) },
+    get networkCalls() {
+      return networkCacheModes.length;
+    },
+    networkCacheModes,
+    network: () => async (input, init) => {
+      networkCacheModes.push(init?.cache);
+      const body = byUrl.get(requestUrl(input));
+      if (body === undefined) {
+        throw new Error(`Unexpected request ${requestUrl(input)}`);
+      }
+      return responseFromChunks(body.slice(0, 5), body.slice(5));
+    },
+  };
+}
+
+function bundleSession(
+  fixture: BundleFixture,
+  options: NonNullable<ConstructorParameters<typeof ModelCacheSession>[1]>,
+): ModelCacheSession {
+  const session = new ModelCacheSession(fixture.manifest, {
+    crossOriginStorageBundle: fixture.identity,
+    ...options,
+  });
+  session.setCrossOriginStorageBundleLayout(fixture.parts);
+  return session;
+}
+
+async function readAll(
+  session: ModelCacheSession,
+  fixture: BundleFixture,
+): Promise<Uint8Array<ArrayBuffer>[]> {
+  const bodies: Uint8Array<ArrayBuffer>[] = [];
+  for (const asset of [fixture.manifest, ...fixture.parts]) {
+    const response = await session.fetch(asset.url);
+    bodies.push(new Uint8Array(await response.arrayBuffer()));
+  }
+  return bodies;
+}
+
+/** Finish a load the way the engine does, and wait for the bundle move. */
+async function finishLoad(session: ModelCacheSession): Promise<void> {
+  await session.settle();
+  await session.settleCrossOriginStorage();
+}
+
+/**
+ * Content-addressed storage with the observable behavior of native
+ * Cross-Origin Storage: lookups miss with `NotFoundError`, writes may be
+ * positioned and out of order, nothing is stored until `close()` verifies the
+ * complete digest, and `abort()` discards the write.
+ */
+class MemoryCrossOriginStorage implements ModelCrossOriginStorage {
+  public readonly files = new Map<string, Uint8Array<ArrayBuffer>>();
+  public readonly requests: Array<{
+    readonly value: string;
+    readonly create: boolean;
+    readonly origins: string | readonly string[] | undefined;
+  }> = [];
+  public requestError: Error | undefined;
+  public writeError: Error | undefined;
+  public aborts = 0;
+
+  public async getFileHandle(
+    hash: CrossOriginStorageRequest[0],
+    options: CrossOriginStorageRequest[1] = {},
+  ): ReturnType<ModelCrossOriginStorage["getFileHandle"]> {
+    const create = options.create === true;
+    this.requests.push({ value: hash.value, create, origins: options.origins });
+    if (this.requestError !== undefined) throw this.requestError;
+    if (!create && !this.files.has(hash.value)) {
+      throw new DOMException("not in cross-origin storage", "NotFoundError");
+    }
+    // The session uses only these members of the handle and its writable.
+    const handle = {
+      getFile: async () => new File([this.files.get(hash.value)!], "bundle"),
+      createWritable: async () => {
+        let buffer = new Uint8Array(0);
+        const writable = {
+          write: async ({
+            position,
+            data,
+          }: {
+            readonly position: number;
+            readonly data: Blob | BufferSource;
+          }) => {
+            if (this.writeError !== undefined) throw this.writeError;
+            const bytes =
+              data instanceof Blob
+                ? new Uint8Array(await data.arrayBuffer())
+                : new Uint8Array(data as Uint8Array<ArrayBuffer>);
+            if (position + bytes.byteLength > buffer.byteLength) {
+              const grown = new Uint8Array(position + bytes.byteLength);
+              grown.set(buffer);
+              buffer = grown;
+            }
+            buffer.set(bytes, position);
+          },
+          close: async () => {
+            if ((await sha256Hex(buffer)) !== hash.value) {
+              throw new DOMException("digest mismatch", "DataError");
+            }
+            this.files.set(hash.value, buffer);
+          },
+          abort: async () => {
+            this.aborts += 1;
+          },
+        };
+        return writable as unknown as FileSystemWritableFileStream;
+      },
+    };
+    return handle as unknown as FileSystemFileHandle;
+  }
+}
+
 async function modelAsset(
   url: string,
   bytes: Uint8Array<ArrayBuffer>,
 ): Promise<ModelCacheAsset> {
-  const digest = new Uint8Array(
-    await globalThis.crypto.subtle.digest("SHA-256", bytes),
-  );
   return {
     url,
     byteLength: bytes.byteLength,
-    sha256: [...digest]
-      .map((value) => value.toString(16).padStart(2, "0"))
-      .join(""),
+    sha256: await sha256Hex(bytes),
   };
+}
+
+async function sha256Hex(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+  const digest = new Uint8Array(
+    await globalThis.crypto.subtle.digest("SHA-256", bytes),
+  );
+  return [...digest]
+    .map((value) => value.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function seedManagedAssets(
